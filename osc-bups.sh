@@ -3,6 +3,7 @@
 # Template stolen from Steven W. Orr https://www.linuxjournal.com/content/asking-yesno-question-bash-script#comment-338999
 #
 # Author: AndrewCz
+# License: GPLv3
 #
 # Usage: osc-bups.sh OPTIONS
 #
