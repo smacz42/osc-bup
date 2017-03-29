@@ -24,19 +24,15 @@ warning() { echo "$@" 1>&2; }
 error() { warning "$@"; exit 1; }
 
 # Here we set usage up so that we can die with a bit more elegance.
-usage()
-{
+usage() {
     warning "$@"
     cat <&2
-    '
 Usage: "${prog}"
     [-h, --help]
     [-t, --types TYPE[,TYPE...]]; default=online,cloud
     [-d, --directory DIRECTORY]; default=/media/backups
     [-b, --boxens BOXEN[,BOXEN...]] default=stallman2,mail2,idle2
-    prompt
 EOF
-    '
     exit 1
 }
 
