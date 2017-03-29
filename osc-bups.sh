@@ -53,9 +53,9 @@ function get_fs_tarball() {
     local directory="$4"
     # makes tarball backup of root@"${boxen}"/${fs_path} at ${directory}/${boxen}/son/${fs_name}-MM-DD-YYYY.tar.gz
     if [[ ${boxen} == 'stallman2' ]]; then
-        tar --directory="${directory}/${boxen}/son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" "${fs_path}"
+        tar --directory="${directory}/${boxen}/Son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" "${fs_path}"
     else
-        ssh root@"${boxen}" "tar zcf - ${fs_path}" | tar --directory="${directory}/${boxen}/son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" -
+        ssh root@"${boxen}" "tar zcf - ${fs_path}" | tar --directory="${directory}/${boxen}/Son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" -
     fi
 }
 
@@ -67,12 +67,25 @@ function get_fs_tarball() {
 #
 # Notes: Can be run anytime, as online backup should always be attached
 function onlinebup() {
+    local boxen="$1"
+    local directory="$2"
+
     for fs in etc boot usr bin sbin srv; do
         get_fs_tarball ${fs} "/${fs}" "$1" "$2"
     done
     # Backup selected subdirectories of the /var filesystem. Specifically we're
     # targeting log, local, mail, and spool
     get_fs_tarball 'var' {/var/log,/var/local,/var/mail,/var/spool} "$2"
+
+    # Homedirs
+    for homedir in /home/*; do
+        homedir=$(echo "${homedir}" | sed 's/\/home\///')
+        if [[ "${homedir}" == 'lost+found' ]]; then
+            echo "skipping ${homedir}"
+            continue
+        fi
+        get_fs_tarball "${homedir}" "/home/${homedir}" "$1" "$2"
+    done
 
     # Generate a list of all installed packages so that they can just be reinstalled
     # in the event of a restoration
@@ -87,16 +100,7 @@ function onlinebup() {
         cat /etc/pacman/mirrorlist > "${packages}"
         pacman -Q | cut -d \  -f1 >> "${packages}"
     fi
-
-    # Homedirs
-    for homedir in /home/*; do
-        homedir=$(echo "${homedir}" | sed 's/\/home\///')
-        if [[ "${homedir}" == 'lost+found' ]]; then
-            echo "skipping ${homedir}"
-            continue
-        fi
-        get_fs_tarball "${homedir}" "/home/${homedir}" "$1" "$2"
-    done
+    scp -C -v -i /root/.ssh/id_rsa root@${boxen}:${packages} ${directory}/${boxen}/Son/packages.txt
 }
 
 #
