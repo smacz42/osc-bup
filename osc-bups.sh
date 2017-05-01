@@ -5,6 +5,11 @@
 # Author: AndrewCz
 # License: GPLv3
 #
+# TODO:
+#   * Encrypt backups
+#   * Exclude /home from `--directories` option
+#   * Separate `/home` backup
+#
 # Usage: osc-bups.sh OPTIONS
 #
 #   Options:
@@ -28,10 +33,10 @@ usage() {
     warning "$@"
     cat <&2
 Usage: "${prog}"
-    [-h, --help]
-    [-t, --types TYPE[,TYPE...]]; default=online,cloud
-    [-d, --directory DIRECTORY]; default=/media/backups
-    [-b, --boxens BOXEN[,BOXEN...]] default=stallman2,mail2,idle2
+    \[-h, --help]
+    \[-t, --types TYPE[,TYPE...]]; default=online,cloud
+    \[-d, --directory DIRECTORY]; default=/media/backups
+    \[-b, --boxens BOXEN[,BOXEN...]] default=stallman2,mail2,idle2
 EOF
     exit 1
 }
@@ -76,16 +81,6 @@ function onlinebup() {
     # Backup selected subdirectories of the /var filesystem. Specifically we're
     # targeting log, local, mail, and spool
     get_fs_tarball 'var' {/var/log,/var/local,/var/mail,/var/spool} "$2"
-
-    # Homedirs
-    for homedir in /home/*; do
-        homedir=$(echo "${homedir}" | sed 's/\/home\///')
-        if [[ "${homedir}" == 'lost+found' ]]; then
-            echo "skipping ${homedir}"
-            continue
-        fi
-        get_fs_tarball "${homedir}" "/home/${homedir}" "$1" "$2"
-    done
 
     # Generate a list of all installed packages so that they can just be reinstalled
     # in the event of a restoration
@@ -136,8 +131,8 @@ function valid_ip() {
 #
 function osc-bups() {
     local types='online,cloud'
-    local directory='/media/backups/'
-    local boxens='stallman2,mail2,idle2'
+    local directory='/srv/backups/'
+    local boxens='stallman2,mail2,idle2,web3'
     # BTW, NEVER give a variabel a one-letter name. It's hard to find them using any editor.
 
     temp=$(getopt -o :d:t:h --long default:,timeout:,help -n "${prog}" -- "$@")
@@ -170,6 +165,10 @@ function osc-bups() {
                 shift 2
                 ;;
 
+            -v | --verbose)
+                set -x
+                shift 2
+                ;;
             # These may come in helpful if/when a "management user" is set up on the boxens, but ATM I think it's just
             # going to be root
             #-i | --identity-file)
@@ -225,10 +224,13 @@ function osc-bups() {
     # Directory
     #
 
-    # Test if directory exists, throw error if false
-    if [[ ! -d "${directory}" ]]; then
-        error "${directory} was not found on this host."
-    fi
+    # Test if directories exists, throw error if false
+    for type in "${types[@]}"; do
+        [[ "${type}" == 'cloud' ]] && continue
+        if [[ ! -d "${directory}/${type}" ]]; then
+            error "${directory}/${type} was not found on this host."
+        fi
+    done
 
     # TODO: Test for enough space on directory
 
@@ -263,11 +265,15 @@ function osc-bups() {
         #
         # Filesystem setup
         #
-        local boxen_dir="${directory}/${boxen}"
-        for gen in Son Father Grandfather; do
-            if [[ ! -d "${boxen_dir}/${gen}" ]]; then
-                mkdir -p "${boxen_dir}/${gen}"
-            fi
+        for type in "${types[@]}"; do
+            [[ "${type}" == 'cloud' ]] && continue
+            local boxen_dir="${directory}/${type}/${boxen}"
+            for gen in Son Father Grandfather; do
+                if [[ ! -d "${boxen_dir}/${gen}" ]]; then
++                   echo "making "${boxen_dir}" directory"
+                    mkdir -p "${boxen_dir}/${gen}"
+                fi
+            done
         done
     done
 
@@ -275,31 +281,60 @@ function osc-bups() {
     # Main B/up loop
     #
     # TODO: Make this concurrent so it doesn't take all day
-    for boxen in "${boxens[@]}"; do
-        #
-        # Age backups
-        #
-        # If the Son directory is empty, skip the aging process. That means that either 1) we've never made a backup
-        # before, 2) We've already run this for this directory (which would be a bug), or 3) The last time we tried
-        # this, it failed/was stopped for this box, and let's not age our backups out of existance
-        if [[ "$(ls -A "${boxen_dir}/Son")" ]]; then
-            # The oldest backup generation is to be removed before the new one is generated
-            if [[ "$(ls -A "${boxen_dir}/Grandfather")" ]]; then
-                rm -rf "${boxen_dir}/Grandfather/*"
+    for type in "${types[@]}"; do
+        # change this to `cloudbup && continue` instead of waiting till the end of the function to call it
+        [[ "${type}" == 'cloud' ]] && continue
+        for boxen in "${boxens[@]}"; do
+            boxen_dir="${directory}/${type}/${boxen}"
+            #
+            # Age backups
+            #
+            # If the Son directory is empty, skip the aging process. That means that either 1) we've never made a backup
+            # before, 2) We've already run this for this directory (which would be a bug), or 3) The last time we tried
+            # this, it failed/was stopped for this box, and let's not age our backups out of existance
+            if [[ "$(ls -A "${boxen_dir}/Son")" ]]; then
+                # The oldest backup generation is to be removed before the new one is generated
+                if [[ "$(ls -A "${boxen_dir}/Grandfather")" ]]; then
++                   echo "Killing off Grandfather for ${boxen}"
+                    # Time to lay some pipes
++                   echo "Date of snapshot: $(find "${boxen_dir}/Father/" |\
+                        sort -n | head -1 | rev | cut -d - -f 1 | rev | cut -d \. -f 1)"
+                    rm -rf "${boxen_dir}/Grandfather/*"
+                fi
+                # The next two are meant to 'age' or advance the files to the next incarnation
+                if [[ "$(ls -A "${boxen_dir}/Father")" ]]; then
++                   echo "Aging Father for ${boxen} to Grandfather"
+                    # Time to lay some pipes
++                   echo "Date of snapshot: $(find "${boxen_dir}/Father/" |\
+                        sort -n | head -1 | rev | cut -d - -f 1 | rev | cut -d \. -f 1)"
+                    mv "${boxen_dir}/Father/*" "${boxen_dir}/Grandfather/"
+                fi
+                # We don't need a test here, b/c we already did it before to get into this loop
+                mv "${boxen_dir}/Son/*" "${boxen_dir}/Father"
             fi
-            # The next two are meant to 'age' or advance the files to the next incarnation
-            if [[ "$(ls -A "${boxen_dir}/Father")" ]]; then
-                mv "${boxen_dir}/Father/*" "${boxen_dir}/Grandfather/"
-            fi 
-            # We don't need a test here, b/c we already did it before to get into this loop
-            mv "${boxen_dir}/Son/*" "${boxen_dir}/Father"
-        fi
-        #
-        # Online Backup
-        #
-        onlinebup "${boxen}" "${directory}"
-        # offlinebup
-        # cloudbup
+            #
+            # Online Backup
+            #
+            # Put a `&` at the end of here to parallelize it
+            [[ "${type}" == 'online' ]] && onlinebup "${boxen}" "${directory}"
+            # [[ "${type}" == 'online' ]] offlinebup
+        done
+        # Homedirs
+        for homedir in /home/*; do
+            # TODO: `basename` instead?
+            account=$(basename ${homedir})
+            if [[ "${account}" == 'lost+found' ]]; then
+                echo "skipping ${account}"
+                continue
+            fi
+            # Really only the first run, but just in case
+            if [[ ! -d "${directory}/${type}/homedirs" ]]; then
++               echo "making homedirs directory"
+                mkdir -p "${directory}/${type}/${account}"
+            fi
+            # stallman2 should be a variable like `cnc_server`
+            get_fs_tarball "${account}" "/home/${account}" stallman2 "${directory}/${type}/homedirs"
+        done
     done
 }
 
@@ -317,8 +352,15 @@ fi
 #fi
 # TODO: Verbosity
 #   -v, --verbose                   Verbose output
+#
+# TODO: Bash set options
+# set -e
 
 # Also, note that I'm testing osc-bups, not 'osc-bups' and not "osc-bups". Don't interpolate if you don't have to..
 if [[ ${noshext} == osc-bups ]]; then
     osc-bups "${@}"
+fi
+
+if [[ $(set -o | grep xtrace | tr -s ' ' | cut -d \  -f 2) == "on" ]]; then
+    set +x
 fi
