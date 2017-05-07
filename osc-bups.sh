@@ -15,9 +15,9 @@
 #   Options:
 #   -h, --help                      Displays usage() and exits
 #   -t, --types TYPE[,TYPE...]      Type of backup to do. Can be specified multiple times Valid TYPE can be:
-#                                       offline
 #                                       online
-#                                       cloud
+#                                       offline (Not implemented yet)
+#                                       cloud (Not implemented yet)
 #   -d, --directory DIRECTORY       Base directory for the b/up hierarchy. Does not take `/dev/sdX`, only a valid directory.
 #                                   Is not valid when --type is only cloud.
 #   -b, --boxens BOXEN[,BOXEN...]   Boxens to backup. Can take FQDNs or ip addresses.
@@ -34,8 +34,8 @@ usage() {
     cat <&2
 Usage: "${prog}"
     \[-h, --help]
-    \[-t, --types TYPE[,TYPE...]]; default=online,cloud
-    \[-d, --directory DIRECTORY]; default=/media/backups
+    \[-t, --types TYPE[,TYPE...]]; default=online
+    \[-d, --directory DIRECTORY]; default=/srv/backups
     \[-b, --boxens BOXEN[,BOXEN...]] default=stallman2,mail2,idle2
 EOF
     exit 1
@@ -48,19 +48,23 @@ EOF
 #       get_fs_tarball FS_NAME FS_PATH BOXEN DIRECTORY
 #
 # TODO: Make this able to use a remote host by specifying a remote fs, e.g:
-#       --directory=root@backups:/srv/backups
+#       --directory=backups@backups:/srv/backups
 #
 #       Make this able to encrypt the backups using gpg
+#
+# Note: This necessitates that backups have the ability to `sudo tar`, which is exposing the entirety of the filesystem
+#       to backups with sudo privleges. We may want to tarball locally first or pursue some alternative way to securing
+#       this. However, since it's done over ssh there's not so much that I would be worried about for the time being.
 function get_fs_tarball() {
     local fs_name="$1"
     local fs_path="$2"
     local boxen="$3"
     local directory="$4"
-    # makes tarball backup of root@"${boxen}"/${fs_path} at ${directory}/${boxen}/son/${fs_name}-MM-DD-YYYY.tar.gz
-    if [[ ${boxen} == 'stallman2' ]]; then
-        tar --directory="${directory}/${boxen}/Son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" "${fs_path}"
+    # makes tarball backup of backups@"${boxen}"/${fs_path} at ${directory}/${boxen}/son/${fs_name}-MM-DD-YYYY.tar.gz
+    if [[ ${boxen} == "$(hostname)" ]]; then
+        tar -czf "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz" "${fs_path}"
     else
-        ssh root@"${boxen}" "tar zcf - ${fs_path}" | tar --directory="${directory}/${boxen}/Son" zxf "${fs_name}fs-$(date + '%Y-%m-%d').tar.gz" -
+        ssh -q "backups@${boxen}" "tar -czf - ${fs_path}" > "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz"
     fi
 }
 
@@ -72,30 +76,36 @@ function get_fs_tarball() {
 #
 # Notes: Can be run anytime, as online backup should always be attached
 function onlinebup() {
-    local boxen="$1"
-    local directory="$2"
+    local boxen="${1}"
+    local directory="${2}/online"
 
-    for fs in etc boot usr bin sbin srv; do
-        get_fs_tarball ${fs} "/${fs}" "$1" "$2"
+    for fs in etc boot usr bin sbin var; do
+        get_fs_tarball ${fs} "/${fs}" "${boxen}" "${directory}"
     done
-    # Backup selected subdirectories of the /var filesystem. Specifically we're
-    # targeting log, local, mail, and spool
-    get_fs_tarball 'var' {/var/log,/var/local,/var/mail,/var/spool} "$2"
 
     # Generate a list of all installed packages so that they can just be reinstalled
-    # in the event of a restoration
-    local packages="/tmp/packages.$$"
-    if command -v dpkg; then
+    # in the event of a restoration.
+    # For future reference, CentOS/RHEL and Arch equivalent commands are given in the comments below
+    # Right now, we're assuming that all the package managers are dpkg/apt
+    local packages="${directory}/${boxen}/Son/packages.txt"
+    if [[ ${boxen} == $(hostname) ]]; then
         cat /etc/apt/sources.list > "${packages}"
         dpkg -l >> "${packages}"
-    elif command -v yum; then
-        cat /etc/yum.repos.d/* > "${packages}"
-        yum list >> "${packages}"
-    elif command -v pacman; then
-        cat /etc/pacman/mirrorlist > "${packages}"
-        pacman -Q | cut -d \  -f1 >> "${packages}"
+    else
+        ssh -q "backups@${boxen}" "cat /etc/apt/sources.list" > "${packages}"
+        ssh -q "backups@${boxen}" "dpkg -l" >> "${packages}"
     fi
-    scp -C -v -i /root/.ssh/id_rsa root@${boxen}:${packages} ${directory}/${boxen}/Son/packages.txt
+
+    # if ssh -q ${boxen} command -v dpkg; then
+    #     cat /etc/apt/sources.list > "${packages}"
+    #     dpkg -l >> "${packages}"
+    # elif command -v yum; then
+    #     cat /etc/yum.repos.d/* > "${packages}"
+    #     yum list >> "${packages}"
+    # elif command -v pacman; then
+    #     cat /etc/pacman/mirrorlist > "${packages}"
+    #     pacman -Q | cut -d \  -f1 >> "${packages}"
+    # fi
 }
 
 #
@@ -130,15 +140,17 @@ function valid_ip() {
 #
 #
 function osc-bups() {
-    local types='online,cloud'
-    local directory='/srv/backups/'
-    local boxens='stallman2,mail2,idle2,web3'
-    # BTW, NEVER give a variabel a one-letter name. It's hard to find them using any editor.
+    # online, offline, cloud
+    local types='online'
+    local directory='/srv/backups'
+    # stallman2, mail2, idle2, web3, ldap
+    local boxens='stallman2,mail2,idle2'
+    # BTW, NEVER give a variable a one-letter name. It's hard to find them using any editor.
 
-    temp=$(getopt -o :d:t:h --long default:,timeout:,help -n "${prog}" -- "$@")
-    eval set -- "$temp"        # The double quotes are key here.
+    temp=$(getopt -o :t:d:b:v:h --long types:,directory:,boxens:,verbose:,help -n "${prog}" -- "$@")
+    eval set -- "$temp"        # The double quotes are key here, but the `--` really fucks with my syntax highlighter
     shopt -s nocasematch       # Hey, this is bash. Let's not make life harder for ourselves.
-                               # None of this checking to see if it's equal to y or to Y.
+
     while true
     do
         case "$1" in
@@ -169,8 +181,9 @@ function osc-bups() {
                 set -x
                 shift 2
                 ;;
+
             # These may come in helpful if/when a "management user" is set up on the boxens, but ATM I think it's just
-            # going to be root
+            # going to be backups
             #-i | --identity-file)
             #    [[ -z "${identity_file}" ]] && error '`-i` or `--identity-file` was specified on the command line, but
             #        no FILE was given.'
@@ -237,7 +250,6 @@ function osc-bups() {
     #
     # Boxens
     #
-
     # The following lines turn the string ${boxens} into a delineated list. Since we accept commas as
     # delimiters on the command line, we must change the IFS here, turn the string into a list, and then
     # responsibly return the IFS to what it was before.
@@ -246,22 +258,23 @@ function osc-bups() {
     boxens=($boxens)
     IFS=$OIFS
     for boxen in "${boxens[@]}"; do
-        #
-        # Testing that the boxens resolve via getent
-        #
-        if valid_ip "$(getent hosts "${boxen}" | awk '{print $1}')"; then
-            :
-        else
-            error "Unable to resolve ${boxen}"
+        if [[ "${boxen}" != "$(hostname)" ]]; then
+            echo "testing connectivity for ${boxen}"
+            #
+            # Testing that the boxens resolve via getent
+            #
+            if ! valid_ip "$(getent hosts "${boxen}" | awk '{print $1}')"; then
+                error "Unable to resolve ${boxen}"
+            fi
+            #
+            # Testing that the boxens are reachable
+            #
+            if ! ping -q -c 5 "${boxen}" > /dev/null; then
+                error "${boxen} not reachable with: $(which ping) -q -c 5 ${boxen}"
+            fi
+            echo "Connectivity confirmed"
         fi
-        #
-        # Testing that the boxens are reachable
-        #
-        if ping -q -c 5 "${boxen}" > /dev/null; then
-            :
-        else
-            error "${boxen} not reachable with: $(which ping) -q -c 5 ${boxen}"
-        fi
+
         #
         # Filesystem setup
         #
@@ -270,7 +283,7 @@ function osc-bups() {
             local boxen_dir="${directory}/${type}/${boxen}"
             for gen in Son Father Grandfather; do
                 if [[ ! -d "${boxen_dir}/${gen}" ]]; then
-+                   echo "making "${boxen_dir}" directory"
+                    echo "making ${boxen_dir}/${gen} directory"
                     mkdir -p "${boxen_dir}/${gen}"
                 fi
             done
@@ -286,6 +299,7 @@ function osc-bups() {
         [[ "${type}" == 'cloud' ]] && continue
         for boxen in "${boxens[@]}"; do
             boxen_dir="${directory}/${type}/${boxen}"
+
             #
             # Age backups
             #
@@ -295,23 +309,26 @@ function osc-bups() {
             if [[ "$(ls -A "${boxen_dir}/Son")" ]]; then
                 # The oldest backup generation is to be removed before the new one is generated
                 if [[ "$(ls -A "${boxen_dir}/Grandfather")" ]]; then
-+                   echo "Killing off Grandfather for ${boxen}"
+                     echo "Killing off Grandfather for ${boxen}"
                     # Time to lay some pipes
-+                   echo "Date of snapshot: $(find "${boxen_dir}/Father/" |\
-                        sort -n | head -1 | rev | cut -d - -f 1 | rev | cut -d \. -f 1)"
-                    rm -rf "${boxen_dir}/Grandfather/*"
+                     echo "Date of snapshot: $(find "${boxen_dir}/Grandfather/" -type f |\
+                         sort -n | head -1 | rev | cut -d - -f 1-3 | rev | cut -d \. -f 1)"
+                    rm -rf "${boxen_dir}"/Grandfather/*
                 fi
                 # The next two are meant to 'age' or advance the files to the next incarnation
                 if [[ "$(ls -A "${boxen_dir}/Father")" ]]; then
-+                   echo "Aging Father for ${boxen} to Grandfather"
-                    # Time to lay some pipes
-+                   echo "Date of snapshot: $(find "${boxen_dir}/Father/" |\
-                        sort -n | head -1 | rev | cut -d - -f 1 | rev | cut -d \. -f 1)"
-                    mv "${boxen_dir}/Father/*" "${boxen_dir}/Grandfather/"
+                     echo "Aging Father for ${boxen} to Grandfather"
+                     echo "Date of snapshot: $(find "${boxen_dir}/Father/" -type f |\
+                         sort -n | head -1 | rev | cut -d - -f 1-3 | rev | cut -d \. -f 1)"
+                    mv "${boxen_dir}"/Father/* "${boxen_dir}/Grandfather/"
                 fi
                 # We don't need a test here, b/c we already did it before to get into this loop
-                mv "${boxen_dir}/Son/*" "${boxen_dir}/Father"
+                 echo "Aging Son for ${boxen} to Father"
+                 echo "Date of snapshot: $(find "${boxen_dir}/Son/" -type f |\
+                     sort -n | head -1 | rev | cut -d - -f 1-3 | rev | cut -d \. -f 1)"
+                mv "${boxen_dir}"/Son/* "${boxen_dir}/Father"
             fi
+
             #
             # Online Backup
             #
@@ -319,9 +336,11 @@ function osc-bups() {
             [[ "${type}" == 'online' ]] && onlinebup "${boxen}" "${directory}"
             # [[ "${type}" == 'online' ]] offlinebup
         done
+
+        #
         # Homedirs
+        #
         for homedir in /home/*; do
-            # TODO: `basename` instead?
             account=$(basename ${homedir})
             if [[ "${account}" == 'lost+found' ]]; then
                 echo "skipping ${account}"
@@ -329,11 +348,11 @@ function osc-bups() {
             fi
             # Really only the first run, but just in case
             if [[ ! -d "${directory}/${type}/homedirs" ]]; then
-+               echo "making homedirs directory"
-                mkdir -p "${directory}/${type}/${account}"
+                 echo "making homedirs directory"
+                mkdir -p "${directory}/${type}/homedirs"
             fi
-            # stallman2 should be a variable like `cnc_server`
-            get_fs_tarball "${account}" "/home/${account}" stallman2 "${directory}/${type}/homedirs"
+            # The ending period is to capture hidden as well as visible directores in the homedir
+            tar -czf "${directory}/${type}/homedirs/${account}-$(date +%Y-%m-%d).tar.gz" "${homedir}/."
         done
     done
 }
@@ -350,17 +369,15 @@ fi
 #if [ -v PS1 ]; then
 #    :
 #fi
-# TODO: Verbosity
-#   -v, --verbose                   Verbose output
-#
 # TODO: Bash set options
 # set -e
+# set -x
+#if [[ $(set -o | grep xtrace | tr -s ' ' | cut -d \  -f 2) == "on" ]]; then
+#    set +x
+#fi
 
 # Also, note that I'm testing osc-bups, not 'osc-bups' and not "osc-bups". Don't interpolate if you don't have to..
 if [[ ${noshext} == osc-bups ]]; then
     osc-bups "${@}"
 fi
 
-if [[ $(set -o | grep xtrace | tr -s ' ' | cut -d \  -f 2) == "on" ]]; then
-    set +x
-fi
