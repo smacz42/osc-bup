@@ -67,7 +67,7 @@ function get_fs_tarball() {
         echo "END: Tarballing ${fs_path} on ${boxen}"
     else
         echo "START: Tarballing ${fs_path} on ${boxen}"
-        ssh -q "backups@${boxen}" "tar -czf - ${fs_path}" > "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz"
+        ssh -q "backups@${boxen}" "sudo tar -czf - ${fs_path}" > "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz"
         echo "END: Tarballing ${fs_path} on ${boxen}"
     fi
 }
@@ -98,8 +98,8 @@ function onlinebup() {
         dpkg -l >> "${packages}"
     else
         echo "Gathering package info from dpkg on ${boxen}"
-        ssh -q "backups@${boxen}" "cat /etc/apt/sources.list" > "${packages}"
-        ssh -q "backups@${boxen}" "dpkg -l" >> "${packages}"
+        ssh -q "backups@${boxen}" "sudo cat /etc/apt/sources.list" > "${packages}"
+        ssh -q "backups@${boxen}" "sudo dpkg -l" >> "${packages}"
     fi
 
     # if ssh -q ${boxen} command -v dpkg; then
@@ -356,6 +356,7 @@ function osc-bups() {
         #
         # Homedirs
         #
+        # TODO: Delete old account tarball before creating the new one
         for homedir in /home/*; do
             account=$(basename ${homedir})
             if [[ "${account}" == 'lost+found' ]]; then
