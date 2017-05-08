@@ -365,10 +365,11 @@ function osc-bups() {
             fi
             # Really only the first run, but just in case
             if [[ ! -d "${directory}/${type}/homedirs" ]]; then
-                 echo "making homedirs directory"
+                echo "making homedirs directory"
                 mkdir -p "${directory}/${type}/homedirs"
             fi
             # The ending period is to capture hidden as well as visible directores in the homedir
+            echo "Tarballing ${account}'s homedir"
             tar -czf "${directory}/${type}/homedirs/${account}-$(date +%Y-%m-%d).tar.gz" "${homedir}/."
         done
     done
