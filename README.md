@@ -6,7 +6,7 @@ This script backs up the systems that are on OSC's network.
 
 * Sudo privileges on `stallman2`
 * Stallman's root account have ssh keys to account `backups` on the remote servers.
-* Remote `backups` accounts have sudo privileges to use `tar` with `NOPASSWD`
+* Remote `backups` accounts have sudo privileges to use `tar`, `cat /etc/apt/sources.list`, and `dpkg -l` with `NOPASSWD`
 * Remote `root` accounts have ssh keys to account `backups` on `stallman2`
 
 # Backup Directories Hierarchy
