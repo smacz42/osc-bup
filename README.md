@@ -2,7 +2,73 @@
 
 This script backs up the systems that are on OSC's network.
 
-## Requirements
+# Requirements
 
-* Root on Stallman
-* Stallman's root account has ssh keys to the rest of the system's root accounts
+* Sudo privileges on `stallman2`
+* Stallman's root account have ssh keys to account `backups` on the remote servers.
+* Remote `backups` accounts have sudo privileges to use `tar` with `NOPASSWD`
+* Remote `root` accounts have ssh keys to account `backups` on `stallman2`
+
+# Backup Directories Hierarchy
+
+```
+.
+├── online
+│   ├── stallman2
+│   │    ├── Father
+│   │    ├── Grandfather
+│   │    └── Son
+│   ├── idle2
+│   │    ├── Father
+│   │    ├── Grandfather
+│   │    └── Son
+│   └── homedirs
+└── offline
+    ├── stallman2
+    │    ├── Father
+    │    ├── Grandfather
+    │    └── Son
+    ├── idle2
+    │    ├── Father
+    │    ├── Grandfather
+    │    └── Son
+    └── homedirs
+```
+
+# Running the Script
+
+This script is meant to be run from `stallman2`, but can be run from any host that can act as a Command and Control machine, providing that it has enough space in `/srv`.
+
+```
+$ sudo osc-bups
+```
+
+## Installation
+
+Installing shell scripts are as easy as copying the file to the local `sbin` directory.
+
+```
+$ git clone https://github.com/smacz42/osc-bup
+$ cd osc-bups
+$ sudo cp -ar osc-bups.sh /usr/local/sbin/
+```
+
+## Directories
+
+This script will create the majority of the directories necessary underneath the major ones - `/srv/backups/online` and `/srv/backups/offline`. Those you will have to make sure are present before running the script.
+
+## Flags
+
+There are several flags that can be used to change the specifics of this script:
+
+* `-t, --types TYPE[,TYPE...]`
+    * Type of backup to do. Can be specified multiple times.
+    * Valid `TYPE`s are:
+        * online
+        * offline (Not implemented yet)
+        * cloud (Not implemented yet)
+* `-d, --directory DIRECTORY`
+    * Base directory for the b/up hierarchy. Does not take `/dev/sdX`, only a valid directory.
+    * Is not valid when --type is only cloud.
+* `-b, --boxens BOXEN[,BOXEN...]`
+    * Boxens to backup. Can take `FQDN`s or IP addresses.
