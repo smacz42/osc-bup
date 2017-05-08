@@ -62,9 +62,13 @@ function get_fs_tarball() {
     local directory="$4"
     # makes tarball backup of backups@"${boxen}"/${fs_path} at ${directory}/${boxen}/son/${fs_name}-MM-DD-YYYY.tar.gz
     if [[ ${boxen} == "$(hostname)" ]]; then
+        echo "START: Tarballing ${fs_path} on ${boxen}"
         tar -czf "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz" "${fs_path}"
+        echo "END: Tarballing ${fs_path} on ${boxen}"
     else
+        echo "START: Tarballing ${fs_path} on ${boxen}"
         ssh -q "backups@${boxen}" "tar -czf - ${fs_path}" > "${directory}/${boxen}/Son/${fs_name}fs-$(date +%Y-%m-%d).tar.gz"
+        echo "END: Tarballing ${fs_path} on ${boxen}"
     fi
 }
 
@@ -89,9 +93,11 @@ function onlinebup() {
     # Right now, we're assuming that all the package managers are dpkg/apt
     local packages="${directory}/${boxen}/Son/packages.txt"
     if [[ ${boxen} == $(hostname) ]]; then
+        echo "Gathering package info from dpkg on ${boxen}"
         cat /etc/apt/sources.list > "${packages}"
         dpkg -l >> "${packages}"
     else
+        echo "Gathering package info from dpkg on ${boxen}"
         ssh -q "backups@${boxen}" "cat /etc/apt/sources.list" > "${packages}"
         ssh -q "backups@${boxen}" "dpkg -l" >> "${packages}"
     fi
@@ -207,7 +213,7 @@ function osc-bups() {
                 ;;
 
             *)
-                usage "$1: Heh, nope"
+                error "$1: Heh, nope"
                 ;;
 
         esac
@@ -289,6 +295,16 @@ function osc-bups() {
             done
         done
     done
+    #
+    # Confirmation
+    #
+    # confirm the variables and check for root key
+    #echo "Please confirm the variables"
+    #echo "      boxens = ${boxens[*]}"
+    #echo "      directory = ${directory}"
+    #echo "      types = ${types[*]}"
+    #sleep 2
+    #read -p "Press [Enter] key to confirm..."
 
     #
     # Main B/up loop
@@ -355,6 +371,12 @@ function osc-bups() {
             tar -czf "${directory}/${type}/homedirs/${account}-$(date +%Y-%m-%d).tar.gz" "${homedir}/."
         done
     done
+
+    #
+    # Permissions reset
+    #
+    # TODO: This script should be architected so that this step isn't necessary
+    chown -R backups:backups /srv/backups
 }
 
 prog=$0

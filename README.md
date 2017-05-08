@@ -12,7 +12,7 @@ This script backs up the systems that are on OSC's network.
 # Backup Directories Hierarchy
 
 ```
-.
+/srv/backups
 ├── online
 │   ├── stallman2
 │   │    ├── Father
@@ -40,7 +40,7 @@ This script backs up the systems that are on OSC's network.
 This script is meant to be run from `stallman2`, but can be run from any host that can act as a Command and Control machine, providing that it has enough space in `/srv`.
 
 ```
-$ sudo osc-bups
+$ sudo osc-bups.sh
 ```
 
 ## Installation
@@ -55,7 +55,7 @@ $ sudo cp -ar osc-bups.sh /usr/local/sbin/
 
 ## Directories
 
-This script will create the majority of the directories necessary underneath the major ones - `/srv/backups/online` and `/srv/backups/offline`. Those you will have to make sure are present before running the script.
+This script will create the majority of the directories necessary underneath the major ones - `/srv/backups/online` and `/srv/backups/offline`. Those you will have to make sure are present before running the script. If you don't, the script will throw an error and refuse to run until they are created.
 
 ## Flags
 
