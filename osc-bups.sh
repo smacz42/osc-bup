@@ -96,6 +96,10 @@ function onlinebup() {
         echo "Gathering package info from dpkg on ${boxen}"
         cat /etc/apt/sources.list > "${packages}"
         dpkg -l >> "${packages}"
+    elif [[ ${boxen} == 'torvalds' ]]; then
+        echo "Gathering package info from dpkg on ${boxen}"
+        ssh -p 122 -q "backups@${boxen}" "sudo cat /etc/apt/sources.list" > "${packages}"
+        ssh -p 122 -q "backups@${boxen}" "sudo dpkg -l" >> "${packages}"
     else
         echo "Gathering package info from dpkg on ${boxen}"
         ssh -q "backups@${boxen}" "sudo cat /etc/apt/sources.list" > "${packages}"
